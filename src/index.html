@@ -102,7 +102,7 @@
     </div>
     
     <div id="scene-controls" class="controls-box">
-        <h2>Scene</h2>
+        <h2 id="scene-title">Scene</h2>
         <p><strong>C:</strong> Change Color</p>
         <p><strong>T:</strong> Place on Road</p>
         <p><strong>R:</strong> Reset to Start</p>
@@ -110,7 +110,7 @@
 
     <div id="dashboard">
         <div class="dashboard-item">
-            <div class="label">Throttle</div>
+            <div class="label">Accelerate</div>
             <div id="throttle-value" class="value">0</div>
             <div class="bar-container">
                 <div id="throttle-bar"></div>
@@ -262,27 +262,57 @@
                     segmentGroup.add(line);
                 }
 
-                for (let i = 0; i < 4; i++) {
-                    if (Math.random() < 0.4) continue;
-                    const side = Math.random() > 0.5 ? 1 : -1;
-                    const xPos = side * (ROAD_WIDTH / 2 + Math.random() * 40 + 10);
-                    const zPos = Math.random() * SEGMENT_LENGTH - SEGMENT_LENGTH / 2;
+                const segmentIndex = Math.abs(Math.round(z / SEGMENT_LENGTH));
+                if (segmentIndex > 0 && segmentIndex % 5 === 0) {
+                    const poleHeight = 15;
+                    const poleRadius = 0.2;
+                    const poleGeometry = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8);
+                    const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x666666 });
+
+                    const leftPole = new THREE.Mesh(poleGeometry, poleMaterial);
+                    leftPole.castShadow = true;
+                    const rightPole = new THREE.Mesh(poleGeometry, poleMaterial);
+                    rightPole.castShadow = true;
+
+                    const poleXPosition = ROAD_WIDTH / 2 + 3;
+                    const bannerZPosition = 0.90 * (SEGMENT_LENGTH / 2);
+                    leftPole.position.set(-poleXPosition, poleHeight / 2, bannerZPosition);
+                    rightPole.position.set(poleXPosition, poleHeight / 2, bannerZPosition);
                     
-                    if (Math.random() > 0.4) {
-                        const height = Math.random() * 10 + 5;
-                        const radius = height / 4;
-                        const treeGeom = new THREE.ConeGeometry(radius, height, 8);
-                        const tree = new THREE.Mesh(treeGeom, treeMaterial);
-                        tree.position.set(xPos, height / 2, zPos);
-                        tree.castShadow = true;
-                        segmentGroup.add(tree);
-                    } else {
-                        const radius = Math.random() * 1.5 + 0.8;
-                        const rockGeom = new THREE.SphereGeometry(radius, 8, 8);
-                        const rock = new THREE.Mesh(rockGeom, rockMaterial);
-                        rock.position.set(xPos, radius, zPos);
-                        rock.castShadow = true;
-                        segmentGroup.add(rock);
+                    segmentGroup.add(leftPole, rightPole);
+
+                    const bannerHeight = 5;
+                    const bannerWidth = poleXPosition * 2;
+                    const bannerGeometry = new THREE.PlaneGeometry(bannerWidth, bannerHeight);
+                    const bannerMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+                    const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
+                    banner.receiveShadow = true;
+                    banner.position.set(0, poleHeight - bannerHeight / 2, bannerZPosition);
+
+                    segmentGroup.add(banner);
+                } else {
+                     for (let i = 0; i < 4; i++) {
+                        if (Math.random() < 0.4) continue;
+                        const side = Math.random() > 0.5 ? 1 : -1;
+                        const xPos = side * (ROAD_WIDTH / 2 + Math.random() * 40 + 10);
+                        const zPos = Math.random() * SEGMENT_LENGTH - SEGMENT_LENGTH / 2;
+                        
+                        if (Math.random() > 0.4) {
+                            const height = Math.random() * 10 + 5;
+                            const radius = height / 4;
+                            const treeGeom = new THREE.ConeGeometry(radius, height, 8);
+                            const tree = new THREE.Mesh(treeGeom, treeMaterial);
+                            tree.position.set(xPos, height / 2, zPos);
+                            tree.castShadow = true;
+                            segmentGroup.add(tree);
+                        } else {
+                            const radius = Math.random() * 1.5 + 0.8;
+                            const rockGeom = new THREE.SphereGeometry(radius, 8, 8);
+                            const rock = new THREE.Mesh(rockGeom, rockMaterial);
+                            rock.position.set(xPos, radius, zPos);
+                            rock.castShadow = true;
+                            segmentGroup.add(rock);
+                        }
                     }
                 }
 
@@ -331,7 +361,28 @@
             const chassisMesh = new THREE.Group();
             scene.add(chassisMesh);
             
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5 });
+            const colorOptions = [
+                { color: 0xffffff, roughness: 0.5, metalness: 0.5 },
+                { color: 0xcc3333, roughness: 0.8, metalness: 0.1 },
+                { color: 0x3333cc, roughness: 0.8, metalness: 0.1 },
+                { color: 0x33aa33, roughness: 0.8, metalness: 0.1 },
+                { color: 0xddcc00, roughness: 0.8, metalness: 0.1 },
+                { color: 0xffa500, roughness: 0.8, metalness: 0.1 },
+                { color: 0xcc3333, roughness: 0.2, metalness: 0.8 },
+                { color: 0x3333cc, roughness: 0.2, metalness: 0.8 },
+                { color: 0x33aa33, roughness: 0.2, metalness: 0.8 },
+                { color: 0xddcc00, roughness: 0.2, metalness: 0.8 },
+                { color: 0xffa500, roughness: 0.2, metalness: 0.8 }
+            ];
+            let currentColorIndex = Math.floor(Math.random() * colorOptions.length);
+            const initialColor = colorOptions[currentColorIndex];
+
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: initialColor.color, 
+                roughness: initialColor.roughness, 
+                metalness: initialColor.metalness 
+            });
+
             const bodyGeometry = new THREE.BoxGeometry(4, 1.5, 6);
             const truckBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
             truckBody.position.y = 1;
@@ -423,22 +474,6 @@
             });
             vehicle.addToWorld(world);
             
-            // FIX: Updated color palette
-            const colorOptions = [
-                { color: 0xffffff, roughness: 0.5, metalness: 0.5 }, // Default White
-                { color: 0xcc3333, roughness: 0.8, metalness: 0.1 }, // Red Matte
-                { color: 0x3333cc, roughness: 0.8, metalness: 0.1 }, // Blue Matte
-                { color: 0x33aa33, roughness: 0.8, metalness: 0.1 }, // Green Matte
-                { color: 0xddcc00, roughness: 0.8, metalness: 0.1 }, // Yellow Matte
-                { color: 0xffa500, roughness: 0.8, metalness: 0.1 }, // Orange Matte
-                { color: 0xcc3333, roughness: 0.2, metalness: 0.8 }, // Red Glossy
-                { color: 0x3333cc, roughness: 0.2, metalness: 0.8 }, // Blue Glossy
-                { color: 0x33aa33, roughness: 0.2, metalness: 0.8 }, // Green Glossy
-                { color: 0xddcc00, roughness: 0.2, metalness: 0.8 }, // Yellow Glossy
-                { color: 0xffa500, roughness: 0.2, metalness: 0.8 }  // Orange Glossy
-            ];
-            let currentColorIndex = 0;
-
             const keyState = {};
             window.addEventListener('keydown', (e) => { 
                 keyState[e.code] = true;
@@ -488,6 +523,9 @@
             const brakeValueElement = document.getElementById('brake-value');
             const brakeBarElement = document.getElementById('brake-bar');
             const odometerElement = document.getElementById('odometer-value');
+            const sceneTitleElement = document.getElementById('scene-title');
+            let frameCount = 0;
+            let lastFpsUpdateTime = 0;
 
             const maxForceBase = 3500;
             const dragCoefficient = 0.22;
@@ -495,6 +533,7 @@
             const clock = new THREE.Clock();
             function animate() {
                 requestAnimationFrame(animate);
+                const now = performance.now();
                 const deltaTime = clock.getDelta();
                 const fixedTimeStep = 1.0 / 60.0;
                 world.step(fixedTimeStep, deltaTime, 3);
@@ -630,9 +669,18 @@
                 lastPosition.copy(chassisBody.position);
                 odometerElement.textContent = (totalDistance * M_TO_MI).toFixed(2);
 
+                // --- FPS Counter ---
+                frameCount++;
+                if (now - lastFpsUpdateTime > 1000) {
+                    const fps = frameCount;
+                    sceneTitleElement.textContent = `Scene (${fps}fps)`;
+                    frameCount = 0;
+                    lastFpsUpdateTime = now;
+                }
+
                 // --- Camera Logic ---
                 const truckPosition = new THREE.Vector3().copy(chassisMesh.position);
-                const worldOffset = new THREE.Vector3(0, 10, 25);
+                const worldOffset = new THREE.Vector3(0, 8, 22);
                 const cameraTargetPosition = new THREE.Vector3().addVectors(truckPosition, worldOffset);
                 
                 camera.position.lerp(cameraTargetPosition, 0.1);
