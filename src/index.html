@@ -103,6 +103,7 @@
     
     <div id="scene-controls" class="controls-box">
         <h2>Scene</h2>
+        <p><strong>C:</strong> Change Color</p>
         <p><strong>T:</strong> Place on Road</p>
         <p><strong>R:</strong> Reset to Start</p>
     </div>
@@ -133,11 +134,24 @@
             <span class="unit">MI</span>
         </div>
     </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
 
-    <script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
         // --- Constants ---
         const KPH_TO_MPH = 0.621371;
         const M_TO_MI = 0.000621371;
@@ -159,6 +173,18 @@
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
+
+            // --- Post-processing with Bloom ---
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 1.01; 
+            bloomPass.strength = 1.5;  
+            bloomPass.radius = 0.5;    
+
+            const composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
 
             // Lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -305,20 +331,66 @@
             const chassisMesh = new THREE.Group();
             scene.add(chassisMesh);
             
-            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5, metalness: 0.5 });
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.5 });
             const bodyGeometry = new THREE.BoxGeometry(4, 1.5, 6);
             const truckBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
             truckBody.position.y = 1;
             truckBody.castShadow = true;
             chassisMesh.add(truckBody);
+            
+            const cabMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7, side: THREE.DoubleSide });
+            
+            const roofGeom = new THREE.PlaneGeometry(4.2, 2.5);
+            const roof = new THREE.Mesh(roofGeom, cabMaterial);
+            roof.rotation.x = -Math.PI / 2;
+            roof.position.set(0, 3.5, 1.75);
+            chassisMesh.add(roof);
 
-            const cabMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7 });
-            const cabGeometry = new THREE.BoxGeometry(4, 2, 2.5);
-            const truckCab = new THREE.Mesh(cabGeometry, cabMaterial);
-            truckCab.position.y = 2.5;
-            truckCab.position.z = 1.75;
-            truckCab.castShadow = true;
-            chassisMesh.add(truckCab);
+            const sideGeom = new THREE.PlaneGeometry(2.5, 1.5);
+            const leftSide = new THREE.Mesh(sideGeom, cabMaterial);
+            leftSide.rotation.y = -Math.PI / 2;
+            leftSide.position.set(-2.05, 2.75, 1.75);
+            chassisMesh.add(leftSide);
+            
+            const rightSide = new THREE.Mesh(sideGeom, cabMaterial);
+            rightSide.rotation.y = Math.PI / 2;
+            rightSide.position.set(2.05, 2.75, 1.75);
+            chassisMesh.add(rightSide);
+
+
+            const glassMaterial = new THREE.MeshStandardMaterial({
+                color: 0xadd8e6,
+                transparent: true,
+                opacity: 0.2,
+                roughness: 0.1,
+                metalness: 0.2,
+                side: THREE.DoubleSide
+            });
+            const frontWindowGeom = new THREE.PlaneGeometry(3.8, 1.8);
+            const frontWindow = new THREE.Mesh(frontWindowGeom, glassMaterial);
+            frontWindow.position.set(0, 2.5, 3.00);
+            chassisMesh.add(frontWindow);
+
+            const backWindowGeom = new THREE.PlaneGeometry(3.8, 1.0);
+            const backWindow = new THREE.Mesh(backWindowGeom, glassMaterial);
+            backWindow.position.set(0, 2.7, 0.50);
+            chassisMesh.add(backWindow);
+            
+            const brakeLightMaterial = new THREE.MeshStandardMaterial({ color: 0x8B0000, emissive: 0x000000, emissiveIntensity: 1 });
+            
+            const mainBrakeLightGeom = new THREE.BoxGeometry(0.5, 0.5, 0.1);
+            const leftBrakeLightMesh = new THREE.Mesh(mainBrakeLightGeom, brakeLightMaterial);
+            leftBrakeLightMesh.position.set(1.5, 0.8, -3.05);
+            chassisMesh.add(leftBrakeLightMesh);
+
+            const rightBrakeLightMesh = new THREE.Mesh(mainBrakeLightGeom, brakeLightMaterial);
+            rightBrakeLightMesh.position.set(-1.5, 0.8, -3.05);
+            chassisMesh.add(rightBrakeLightMesh);
+
+            const highMountBrakeGeom = new THREE.BoxGeometry(1.5, 0.2, 0.1);
+            const highMountBrakeMesh = new THREE.Mesh(highMountBrakeGeom, brakeLightMaterial);
+            highMountBrakeMesh.position.set(0, 3.4, 0.51);
+            chassisMesh.add(highMountBrakeMesh);
 
             const vehicle = new CANNON.RaycastVehicle({ chassisBody: chassisBody, indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2 });
             const wheelOptions = {
@@ -351,12 +423,34 @@
             });
             vehicle.addToWorld(world);
             
+            // FIX: Updated color palette
+            const colorOptions = [
+                { color: 0xffffff, roughness: 0.5, metalness: 0.5 }, // Default White
+                { color: 0xcc3333, roughness: 0.8, metalness: 0.1 }, // Red Matte
+                { color: 0x3333cc, roughness: 0.8, metalness: 0.1 }, // Blue Matte
+                { color: 0x33aa33, roughness: 0.8, metalness: 0.1 }, // Green Matte
+                { color: 0xddcc00, roughness: 0.8, metalness: 0.1 }, // Yellow Matte
+                { color: 0xffa500, roughness: 0.8, metalness: 0.1 }, // Orange Matte
+                { color: 0xcc3333, roughness: 0.2, metalness: 0.8 }, // Red Glossy
+                { color: 0x3333cc, roughness: 0.2, metalness: 0.8 }, // Blue Glossy
+                { color: 0x33aa33, roughness: 0.2, metalness: 0.8 }, // Green Glossy
+                { color: 0xddcc00, roughness: 0.2, metalness: 0.8 }, // Yellow Glossy
+                { color: 0xffa500, roughness: 0.2, metalness: 0.8 }  // Orange Glossy
+            ];
+            let currentColorIndex = 0;
+
             const keyState = {};
             window.addEventListener('keydown', (e) => { 
                 keyState[e.code] = true;
                 if (e.code === 'KeyR') hardResetVehicle();
                 if (e.code === 'KeyT') softResetVehicle();
-                if (e.code === 'KeyP') testAcceleration();
+                if (e.code === 'KeyC') {
+                    currentColorIndex = (currentColorIndex + 1) % colorOptions.length;
+                    const newColor = colorOptions[currentColorIndex];
+                    bodyMaterial.color.setHex(newColor.color);
+                    bodyMaterial.roughness = newColor.roughness;
+                    bodyMaterial.metalness = newColor.metalness;
+                }
             });
             window.addEventListener('keyup', (e) => { keyState[e.code] = false; });
             
@@ -394,7 +488,6 @@
             const brakeValueElement = document.getElementById('brake-value');
             const brakeBarElement = document.getElementById('brake-bar');
             const odometerElement = document.getElementById('odometer-value');
-            const dragElement = document.getElementById('drag-value');
 
             const maxForceBase = 3500;
             const dragCoefficient = 0.22;
@@ -510,15 +603,27 @@
 
                 // --- DASHBOARD UPDATE ---
                 speedElement.textContent = Math.abs(Math.round(currentSpeedMph));
-                // REMOVED dragElement update
                 const throttlePercent = throttleLevel * 100;
                 throttleValueElement.textContent = Math.round(throttlePercent);
                 throttleBarElement.style.width = throttlePercent + '%';
 
-                // NEW: Update brake gauge
                 const brakePercent = brakeLevel * 100;
                 brakeValueElement.textContent = Math.round(brakePercent);
                 brakeBarElement.style.width = brakePercent + '%';
+                
+                if (brakeLevel >= 1.0) {
+                    brakeLightMaterial.color.setHex(0xff0000); 
+                    brakeLightMaterial.emissive.setRGB(5, 0, 0); 
+                    brakeLightMaterial.emissiveIntensity = 1.0;
+                } else if (brakeLevel > 0) {
+                    brakeLightMaterial.color.setHex(0x8B0000); 
+                    brakeLightMaterial.emissive.setHex(0xff0000); 
+                    brakeLightMaterial.emissiveIntensity = 1.0;
+                } else {
+                    brakeLightMaterial.color.setHex(0x8B0000); 
+                    brakeLightMaterial.emissive.setHex(0x000000);
+                    brakeLightMaterial.emissiveIntensity = 0;
+                }
 
                 const distanceThisFrame = chassisBody.position.distanceTo(lastPosition);
                 totalDistance += distanceThisFrame;
@@ -533,13 +638,15 @@
                 camera.position.lerp(cameraTargetPosition, 0.1);
                 camera.lookAt(truckPosition);
                 
-                renderer.render(scene, camera);
+                // Use composer to render with post-processing
+                composer.render();
             }
 
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
+                composer.setSize(window.innerWidth, window.innerHeight);
             }, false);
 
             animate();
