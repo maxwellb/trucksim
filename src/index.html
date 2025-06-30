@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Truck Simulator</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #111; color: #fff; }
+        canvas { display: block; }
+        .controls-box {
+            position: absolute;
+            bottom: 20px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 15px;
+            font-size: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-align: left;
+        }
+        #movement-controls {
+            left: 20px;
+        }
+        #scene-controls {
+            right: 20px;
+        }
+        .controls-box h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #4ade80; /* Light Green */
+            font-size: 16px;
+        }
+        .controls-box p {
+            margin: 5px 0;
+        }
+        .controls-box strong {
+            color: #facc15; /* Yellow */
+            display: inline-block;
+            width: 40px;
+        }
+        #dashboard {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            align-items: center;
+            text-align: center;
+        }
+        .dashboard-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 100px;
+        }
+        .dashboard-item .label {
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+        }
+        .dashboard-item .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .dashboard-item .unit {
+            font-size: 12px;
+            color: #ccc;
+        }
+        .bar-container {
+            width: 100%;
+            height: 10px;
+            background-color: #333;
+            border-radius: 5px;
+            margin-top: 4px;
+            overflow: hidden;
+        }
+        #throttle-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #4ade80;
+        }
+        #brake-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #ef4444; /* Red for brake */
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="movement-controls" class="controls-box">
+        <h2>Movement</h2>
+        <p><strong>W:</strong> Accelerate</p>
+        <p><strong>S:</strong> Brake</p>
+        <p><strong>A:</strong> Steer Left</p>
+        <p><strong>D:</strong> Steer Right</p>
+    </div>
+    
+    <div id="scene-controls" class="controls-box">
+        <h2>Scene</h2>
+        <p><strong>T:</strong> Place on Road</p>
+        <p><strong>R:</strong> Reset to Start</p>
+    </div>
+
+    <div id="dashboard">
+        <div class="dashboard-item">
+            <div class="label">Throttle</div>
+            <div id="throttle-value" class="value">0</div>
+            <div class="bar-container">
+                <div id="throttle-bar"></div>
+            </div>
+        </div>
+        <div class="dashboard-item">
+            <div class="label">Speed</div>
+            <span id="speed-value" class="value">0</span>
+            <span class="unit">MPH</span>
+        </div>
+        <div class="dashboard-item">
+            <div class="label">Brake</div>
+            <div id="brake-value" class="value">0</div>
+            <div class="bar-container">
+                <div id="brake-bar"></div>
+            </div>
+        </div>
+        <div class="dashboard-item">
+            <div class="label">Odometer</div>
+            <span id="odometer-value" class="value">0.00</span>
+            <span class="unit">MI</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <script>
+        // --- Constants ---
+        const KPH_TO_MPH = 0.621371;
+        const M_TO_MI = 0.000621371;
+
+        // Main entry point
+        window.onload = function() {
+            // Scene setup
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.fog = new THREE.Fog(0x87ceeb, 300, 600);
+
+            // Camera setup
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 10, 20);
+
+            // Renderer setup
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            directionalLight.position.set(100, 100, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.left = -250;
+            directionalLight.shadow.camera.right = 250;
+            directionalLight.shadow.camera.top = 250;
+            directionalLight.shadow.camera.bottom = -250;
+            scene.add(directionalLight);
+
+            // Physics world setup
+            const world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.broadphase = new CANNON.SAPBroadphase(world);
+            world.solver.iterations = 10;
+            world.defaultContactMaterial.friction = 0.3;
+
+            // --- Procedural Road Generation ---
+            const roadSegments = [];
+            const SEGMENT_LENGTH = 100;
+            const ROAD_WIDTH = 12;
+
+            const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 });
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4CAF50, roughness: 0.9 });
+            const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const treeMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.9 });
+            const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.8 });
+            
+            function disposeObject(obj) {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                     if (Array.isArray(obj.material)) {
+                        obj.material.forEach(material => material.dispose());
+                    } else {
+                        obj.material.dispose();
+                    }
+                }
+            }
+
+            function generateRoadSegment(z) {
+                const segmentGroup = new THREE.Group();
+
+                const roadGeometry = new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH);
+                const roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
+                roadMesh.rotation.x = -Math.PI / 2;
+                roadMesh.receiveShadow = true;
+                segmentGroup.add(roadMesh);
+
+                const groundWidth = 150;
+                const groundGeometry = new THREE.PlaneGeometry(groundWidth, SEGMENT_LENGTH);
+                const leftGround = new THREE.Mesh(groundGeometry, groundMaterial);
+                leftGround.rotation.x = -Math.PI / 2;
+                leftGround.position.x = -(ROAD_WIDTH / 2 + groundWidth / 2);
+                leftGround.receiveShadow = true;
+                segmentGroup.add(leftGround);
+
+                const rightGround = new THREE.Mesh(groundGeometry, groundMaterial);
+                rightGround.rotation.x = -Math.PI / 2;
+                rightGround.position.x = ROAD_WIDTH / 2 + groundWidth / 2;
+                rightGround.receiveShadow = true;
+                segmentGroup.add(rightGround);
+
+                const lineGeometry = new THREE.PlaneGeometry(0.3, 4);
+                for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
+                    const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                    line.rotation.x = -Math.PI / 2;
+                    line.position.z = i;
+                    line.position.y = 0.01;
+                    segmentGroup.add(line);
+                }
+
+                for (let i = 0; i < 4; i++) {
+                    if (Math.random() < 0.4) continue;
+                    const side = Math.random() > 0.5 ? 1 : -1;
+                    const xPos = side * (ROAD_WIDTH / 2 + Math.random() * 40 + 10);
+                    const zPos = Math.random() * SEGMENT_LENGTH - SEGMENT_LENGTH / 2;
+                    
+                    if (Math.random() > 0.4) {
+                        const height = Math.random() * 10 + 5;
+                        const radius = height / 4;
+                        const treeGeom = new THREE.ConeGeometry(radius, height, 8);
+                        const tree = new THREE.Mesh(treeGeom, treeMaterial);
+                        tree.position.set(xPos, height / 2, zPos);
+                        tree.castShadow = true;
+                        segmentGroup.add(tree);
+                    } else {
+                        const radius = Math.random() * 1.5 + 0.8;
+                        const rockGeom = new THREE.SphereGeometry(radius, 8, 8);
+                        const rock = new THREE.Mesh(rockGeom, rockMaterial);
+                        rock.position.set(xPos, radius, zPos);
+                        rock.castShadow = true;
+                        segmentGroup.add(rock);
+                    }
+                }
+
+                segmentGroup.position.z = z;
+                scene.add(segmentGroup);
+
+                const segmentShape = new CANNON.Box(new CANNON.Vec3((groundWidth * 2 + ROAD_WIDTH) / 2, 0.1, SEGMENT_LENGTH / 2));
+                const segmentBody = new CANNON.Body({ mass: 0 });
+                segmentBody.addShape(segmentShape);
+                segmentBody.position.set(0, -0.1, z);
+                world.addBody(segmentBody);
+                
+                return { mesh: segmentGroup, body: segmentBody, z: z };
+            }
+            
+            function updateRoad() {
+                const truckZ = chassisBody.position.z;
+                const generationDistance = 7 * SEGMENT_LENGTH;
+                const removalDistance = 8 * SEGMENT_LENGTH;
+
+                const lastSegment = roadSegments[roadSegments.length - 1];
+                if (lastSegment && truckZ < lastSegment.z + generationDistance) {
+                     roadSegments.push(generateRoadSegment(lastSegment.z - SEGMENT_LENGTH));
+                     roadSegments.sort((a,b) => b.z - a.z);
+                }
+
+                const firstSegment = roadSegments[0];
+                if (firstSegment && firstSegment.z > truckZ + removalDistance) {
+                    const oldSegment = roadSegments.shift();
+                    scene.remove(oldSegment.mesh);
+                    world.removeBody(oldSegment.body);
+                    oldSegment.mesh.traverse(disposeObject);
+                }
+            }
+            
+            // --- Truck Creation ---
+            const chassisShape = new CANNON.Box(new CANNON.Vec3(2, 0.5, 4));
+            const chassisBody = new CANNON.Body({ mass: 220 });
+            chassisBody.addShape(chassisShape, new CANNON.Vec3(0, -0.5, 0));
+            chassisBody.position.set(0, 4, 0);
+            chassisBody.angularVelocity.set(0, 0, 0);
+            chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI);
+            chassisBody.linearDamping = 0;
+
+
+            const chassisMesh = new THREE.Group();
+            scene.add(chassisMesh);
+            
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5, metalness: 0.5 });
+            const bodyGeometry = new THREE.BoxGeometry(4, 1.5, 6);
+            const truckBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            truckBody.position.y = 1;
+            truckBody.castShadow = true;
+            chassisMesh.add(truckBody);
+
+            const cabMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7 });
+            const cabGeometry = new THREE.BoxGeometry(4, 2, 2.5);
+            const truckCab = new THREE.Mesh(cabGeometry, cabMaterial);
+            truckCab.position.y = 2.5;
+            truckCab.position.z = 1.75;
+            truckCab.castShadow = true;
+            chassisMesh.add(truckCab);
+
+            const vehicle = new CANNON.RaycastVehicle({ chassisBody: chassisBody, indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2 });
+            const wheelOptions = {
+                radius: 0.8, directionLocal: new CANNON.Vec3(0, -1, 0), 
+                suspensionStiffness: 30,
+                suspensionRestLength: 0.4, 
+                frictionSlip: 5, 
+                dampingRelaxation: 1.8, 
+                dampingCompression: 2.5,
+                maxSuspensionForce: 100000, rollInfluence: 0.01, axleLocal: new CANNON.Vec3(-1, 0, 0),
+                chassisConnectionPointLocal: new CANNON.Vec3(), maxSuspensionTravel: 0.2,
+                customSlidingRotationalSpeed: -30, useCustomSlidingRotationalSpeed: true,
+            };
+            const wheelPositions = [
+                { x: 1.8, y: 0, z: 2.8 }, { x: -1.8, y: 0, z: 2.8 },
+                { x: 1.8, y: 0, z: -2.5 }, { x: -1.8, y: 0, z: -2.5 }
+            ];
+            const wheelMeshes = [];
+            const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, metalness: 0.1 });
+            const wheelGeometry = new THREE.CylinderGeometry(wheelOptions.radius, wheelOptions.radius, 0.5, 24);
+            wheelGeometry.rotateZ(Math.PI / 2);
+
+            wheelPositions.forEach(pos => {
+                wheelOptions.chassisConnectionPointLocal.set(pos.x, pos.y, pos.z);
+                vehicle.addWheel(wheelOptions);
+                const wheelMesh = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheelMesh.castShadow = true;
+                scene.add(wheelMesh);
+                wheelMeshes.push(wheelMesh);
+            });
+            vehicle.addToWorld(world);
+            
+            const keyState = {};
+            window.addEventListener('keydown', (e) => { 
+                keyState[e.code] = true;
+                if (e.code === 'KeyR') hardResetVehicle();
+                if (e.code === 'KeyT') softResetVehicle();
+                if (e.code === 'KeyP') testAcceleration();
+            });
+            window.addEventListener('keyup', (e) => { keyState[e.code] = false; });
+            
+            let totalDistance = 0;
+            function hardResetVehicle() {
+                chassisBody.position.set(0, 4, 0);
+                chassisBody.velocity.set(0, 0, 0);
+                chassisBody.angularVelocity.set(0, 0, 0);
+                chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI);
+                totalDistance = 0;
+                throttleLevel = 0;
+                brakeLevel = 0;
+            }
+
+            function softResetVehicle() {
+                const currentZ = chassisBody.position.z;
+                chassisBody.position.set(0, 4, currentZ);
+                chassisBody.velocity.set(0, 0, 0);
+                chassisBody.angularVelocity.set(0, 0, 0);
+                chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI);
+            }
+
+            for(let i = 10; i > -15; i--) {
+                roadSegments.push(generateRoadSegment(i * SEGMENT_LENGTH));
+            }
+            roadSegments.sort((a,b) => b.z - a.z);
+            
+            let lastPosition = new CANNON.Vec3().copy(chassisBody.position);
+            let throttleLevel = 0;
+            let brakeLevel = 0;
+
+            const speedElement = document.getElementById('speed-value');
+            const throttleValueElement = document.getElementById('throttle-value');
+            const throttleBarElement = document.getElementById('throttle-bar');
+            const brakeValueElement = document.getElementById('brake-value');
+            const brakeBarElement = document.getElementById('brake-bar');
+            const odometerElement = document.getElementById('odometer-value');
+            const dragElement = document.getElementById('drag-value');
+
+            const maxForceBase = 3500;
+            const dragCoefficient = 0.22;
+
+            const clock = new THREE.Clock();
+            function animate() {
+                requestAnimationFrame(animate);
+                const deltaTime = clock.getDelta();
+                const fixedTimeStep = 1.0 / 60.0;
+                world.step(fixedTimeStep, deltaTime, 3);
+                
+                updateRoad();
+
+                for (let i = 0; i < vehicle.wheelInfos.length; i++) {
+                    vehicle.updateWheelTransform(i);
+                    const t = vehicle.wheelInfos[i].worldTransform;
+                    wheelMeshes[i].position.copy(t.position);
+                    wheelMeshes[i].quaternion.copy(t.quaternion);
+                }
+                
+                chassisMesh.position.copy(chassisBody.position);
+                chassisMesh.quaternion.copy(chassisBody.quaternion);
+                
+                const maxSteerVal = 0.5;
+                let steer = 0;
+                
+                const accelerationPressed = keyState['KeyW'];
+                const throttleOpenTime = 3.0;
+                const throttleCloseTime = 0.5;
+                if (accelerationPressed) {
+                    throttleLevel += deltaTime / throttleOpenTime;
+                } else {
+                    throttleLevel -= deltaTime / throttleCloseTime;
+                }
+                throttleLevel = Math.max(0, Math.min(1, throttleLevel));
+
+                let engineForce = 0;
+                const currentSpeedMph = vehicle.currentVehicleSpeedKmHour * KPH_TO_MPH;
+                if (throttleLevel > 0) {
+                    let baseForce;
+                    const powerAt50 = -maxForceBase * 0.4;
+                    const powerAt80 = -maxForceBase * 0.15;
+
+                    if (currentSpeedMph < 50) {
+                        const t = currentSpeedMph / 50.0;
+                        baseForce = -maxForceBase * (1.0 - t) + powerAt50 * t;
+                    } else if (currentSpeedMph < 80) {
+                        const t = (currentSpeedMph - 50) / 30.0;
+                        baseForce = powerAt50 * (1.0 - t) + powerAt80 * t;
+                    } else if (currentSpeedMph < 120) {
+                        const t = (currentSpeedMph - 80) / 40.0;
+                        baseForce = powerAt80 * (1.0 - t);
+                    } else {
+                        baseForce = 0;
+                    }
+                    engineForce = baseForce * throttleLevel;
+                }
+                vehicle.applyEngineForce(engineForce, 2);
+                vehicle.applyEngineForce(engineForce, 3);
+
+                if (keyState['KeyA']) {
+                    steer = maxSteerVal;
+                }
+                if (keyState['KeyD']) {
+                    steer = -maxSteerVal;
+                }
+                vehicle.setSteeringValue(steer, 0);
+                vehicle.setSteeringValue(steer, 1);
+                
+                const speed = chassisBody.velocity.length();
+                const dragForceMagnitude = dragCoefficient * speed * speed;
+                const dragForce = chassisBody.velocity.clone().negate();
+                if (dragForceMagnitude > 0) {
+                    dragForce.normalize();
+                    dragForce.scale(dragForceMagnitude, dragForce);
+                    chassisBody.applyForce(dragForce, chassisBody.position);
+                }
+
+                if (currentSpeedMph < 50) {
+                    const maxDampingForce = 150;
+                    let dampingMultiplier = (currentSpeedMph < 20) ? 1.0 : 1.0 - ((currentSpeedMph - 20) / 30);
+                    const dampingForceMag = maxDampingForce * dampingMultiplier;
+                    const dampingForce = chassisBody.velocity.clone().negate();
+                    if (dampingForceMag > 0) {
+                        dampingForce.normalize();
+                        dampingForce.scale(dampingForceMag, dampingForce);
+                        chassisBody.applyForce(dampingForce, chassisBody.position);
+                    }
+                }
+
+                const brakePressed = keyState['KeyS'];
+                const brakeRampUpTime = 0.3;
+                const brakeRampOutTime = 1.0;
+                if (brakePressed) {
+                    brakeLevel += deltaTime / brakeRampUpTime;
+                } else {
+                    brakeLevel -= deltaTime / brakeRampOutTime;
+                }
+                brakeLevel = Math.max(0, Math.min(1, brakeLevel));
+                
+                if (brakeLevel > 0) {
+                    const maxBrakeForce = 2000;
+                    const brakeForceMag = maxBrakeForce * brakeLevel;
+                    const brakeForce = chassisBody.velocity.clone().negate();
+                    if (brakeForceMag > 0) {
+                        brakeForce.normalize();
+                        brakeForce.scale(brakeForceMag, brakeForce);
+                        chassisBody.applyForce(brakeForce, chassisBody.position);
+                    }
+                }
+
+                vehicle.setBrake(0,0,0,0);
+
+                // --- DASHBOARD UPDATE ---
+                speedElement.textContent = Math.abs(Math.round(currentSpeedMph));
+                // REMOVED dragElement update
+                const throttlePercent = throttleLevel * 100;
+                throttleValueElement.textContent = Math.round(throttlePercent);
+                throttleBarElement.style.width = throttlePercent + '%';
+
+                // NEW: Update brake gauge
+                const brakePercent = brakeLevel * 100;
+                brakeValueElement.textContent = Math.round(brakePercent);
+                brakeBarElement.style.width = brakePercent + '%';
+
+                const distanceThisFrame = chassisBody.position.distanceTo(lastPosition);
+                totalDistance += distanceThisFrame;
+                lastPosition.copy(chassisBody.position);
+                odometerElement.textContent = (totalDistance * M_TO_MI).toFixed(2);
+
+                // --- Camera Logic ---
+                const truckPosition = new THREE.Vector3().copy(chassisMesh.position);
+                const worldOffset = new THREE.Vector3(0, 10, 25);
+                const cameraTargetPosition = new THREE.Vector3().addVectors(truckPosition, worldOffset);
+                
+                camera.position.lerp(cameraTargetPosition, 0.1);
+                camera.lookAt(truckPosition);
+                
+                renderer.render(scene, camera);
+            }
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            animate();
+        };
+    </script>
+</body>
+</html>
