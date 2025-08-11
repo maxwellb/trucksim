@@ -9,7 +9,6 @@
         canvas { display: block; }
         .controls-box {
             position: absolute;
-            bottom: 20px;
             background-color: rgba(0, 0, 0, 0.6);
             padding: 10px 20px;
             border-radius: 15px;
@@ -19,9 +18,23 @@
         }
         #movement-controls {
             left: 20px;
+            bottom: 20px;
         }
         #scene-controls {
             right: 20px;
+            bottom: 20px;
+        }
+        #choice-log {
+            right: 20px;
+            top: 20px;
+            width: 150px;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+        #choice-log p {
+            font-family: monospace;
+            font-size: 16px;
+            margin: 8px 0;
         }
         .controls-box h2 {
             margin-top: 0;
@@ -103,9 +116,21 @@
     
     <div id="scene-controls" class="controls-box">
         <h2 id="scene-title">Scene</h2>
+        <p><strong>Z:</strong> Zoom Camera</p>
         <p><strong>C:</strong> Change Color</p>
         <p><strong>T:</strong> Place on Road</p>
         <p><strong>R:</strong> Reset to Start</p>
+    </div>
+
+    <div id="choice-log" class="controls-box">
+        <h2>Choice Log</h2>
+        <p id="log-entry-1"></p>
+        <p id="log-entry-2"></p>
+        <p id="log-entry-3"></p>
+        <p id="log-entry-4"></p>
+        <p id="log-entry-5"></p>
+        <p id="log-entry-6"></p>
+        <p id="log-entry-7"></p>
     </div>
 
     <div id="dashboard">
@@ -138,8 +163,8 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
             }
         }
     </script>
@@ -151,6 +176,8 @@
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
         // --- Constants ---
         const KPH_TO_MPH = 0.621371;
@@ -209,9 +236,13 @@
             world.defaultContactMaterial.friction = 0.3;
 
             // --- Procedural Road Generation ---
-            const roadSegments = [];
+            let roadSegmentHead = null;
+            let roadSegmentTail = null;
+            let roadSegmentCount = 0;
+            const MAX_SEGMENTS = 25;
+
             const SEGMENT_LENGTH = 100;
-            const ROAD_WIDTH = 12;
+            const ROAD_WIDTH = 12; // Width of a 2-lane roadway
 
             const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 });
             const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4CAF50, roughness: 0.9 });
@@ -229,72 +260,178 @@
                     }
                 }
             }
+            
+            let font = null;
+            const fontLoader = new FontLoader();
+            fontLoader.load('https://cdn.jsdelivr.net/npm/three@0.165.0/examples/fonts/helvetiker_bold.typeface.json', (loadedFont) => {
+                font = loadedFont;
+            });
 
-            function generateRoadSegment(z) {
+            function generateBannerText() {
+                const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                let letter1 = alphabet[Math.floor(Math.random() * alphabet.length)];
+                let letter2 = alphabet[Math.floor(Math.random() * alphabet.length)];
+                while (letter1 === letter2) {
+                    letter2 = alphabet[Math.floor(Math.random() * alphabet.length)];
+                }
+                return { left: letter1, right: letter2 };
+            }
+
+            function createTextOnBanner(banner, text) {
+                if (!font || !banner) return;
+                
+                const oldText = banner.getObjectByName("bannerText");
+                if (oldText) {
+                    banner.remove(oldText);
+                    disposeObject(oldText);
+                }
+
+                const textGeometry = new TextGeometry(text, {
+                    font: font,
+                    size: 2,
+                    height: 0.1,
+                });
+                textGeometry.center();
+                const textMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+                const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                textMesh.name = "bannerText";
+                textMesh.position.z = 0.1;
+                banner.add(textMesh);
+            }
+
+            function generateRoadSegment(index) {
+                const z = index * SEGMENT_LENGTH;
                 const segmentGroup = new THREE.Group();
 
-                const roadGeometry = new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH);
-                const roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
-                roadMesh.rotation.x = -Math.PI / 2;
-                roadMesh.receiveShadow = true;
-                segmentGroup.add(roadMesh);
+                const mod = Math.abs(index % 10);
+                let type;
+                switch (mod) {
+                    case 0: type = 'split-banner'; break;
+                    case 1: type = 'split-finish'; break;
+                    case 4: type = 'split-start'; break;
+                    case 5: type = 'split-banner'; break;
+                    case 6: type = 'split-finish'; break;
+                    case 9: type = 'split-start'; break;
+                    default: type = 'single'; break;
+                }
 
                 const groundWidth = 150;
                 const groundGeometry = new THREE.PlaneGeometry(groundWidth, SEGMENT_LENGTH);
                 const leftGround = new THREE.Mesh(groundGeometry, groundMaterial);
                 leftGround.rotation.x = -Math.PI / 2;
-                leftGround.position.x = -(ROAD_WIDTH / 2 + groundWidth / 2);
+                leftGround.position.x = -groundWidth / 2;
                 leftGround.receiveShadow = true;
                 segmentGroup.add(leftGround);
 
                 const rightGround = new THREE.Mesh(groundGeometry, groundMaterial);
                 rightGround.rotation.x = -Math.PI / 2;
-                rightGround.position.x = ROAD_WIDTH / 2 + groundWidth / 2;
+                rightGround.position.x = groundWidth / 2;
                 rightGround.receiveShadow = true;
                 segmentGroup.add(rightGround);
 
                 const lineGeometry = new THREE.PlaneGeometry(0.3, 4);
-                for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
-                    const line = new THREE.Mesh(lineGeometry, lineMaterial);
-                    line.rotation.x = -Math.PI / 2;
-                    line.position.z = i;
-                    line.position.y = 0.01;
-                    segmentGroup.add(line);
+                let roadEdgeX = 0;
+
+                if (type === 'single') {
+                    const singleRoadWidth = ROAD_WIDTH * 2;
+                    roadEdgeX = singleRoadWidth / 2;
+                    const roadGeometry = new THREE.PlaneGeometry(singleRoadWidth, SEGMENT_LENGTH);
+                    const roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
+                    roadMesh.rotation.x = -Math.PI / 2;
+                    roadMesh.position.y = 0.01;
+                    roadMesh.receiveShadow = true;
+                    segmentGroup.add(roadMesh);
+
+                    for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
+                        const line = new THREE.Mesh(lineGeometry.clone(), lineMaterial);
+                        line.rotation.x = -Math.PI / 2;
+                        line.position.set(0, 0.02, i);
+                        segmentGroup.add(line);
+                    }
+                    const laneLineOffset = singleRoadWidth / 4;
+                     for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
+                        const leftDash = new THREE.Mesh(lineGeometry.clone(), lineMaterial);
+                        leftDash.rotation.x = -Math.PI / 2;
+                        leftDash.position.set(-laneLineOffset, 0.02, i);
+                        segmentGroup.add(leftDash);
+                        
+                        const rightDash = new THREE.Mesh(lineGeometry.clone(), lineMaterial);
+                        rightDash.rotation.x = -Math.PI / 2;
+                        rightDash.position.set(laneLineOffset, 0.02, i);
+                        segmentGroup.add(rightDash);
+                    }
+
+                } else { // split-start, split-finish, split-banner
+                    const gap = (type === 'split-banner') ? 10 : 4;
+                    const roadOffset = (ROAD_WIDTH + gap) / 2;
+                    roadEdgeX = roadOffset + ROAD_WIDTH / 2;
+
+                    const leftRoadGeom = new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH);
+                    const leftRoad = new THREE.Mesh(leftRoadGeom, roadMaterial);
+                    leftRoad.rotation.x = -Math.PI / 2;
+                    leftRoad.position.x = -roadOffset;
+                    leftRoad.position.y = 0.01;
+                    leftRoad.receiveShadow = true;
+                    segmentGroup.add(leftRoad);
+                    
+                    for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
+                        const line = new THREE.Mesh(lineGeometry.clone(), lineMaterial);
+                        line.rotation.x = -Math.PI / 2;
+                        line.position.set(-roadOffset, 0.02, i);
+                        segmentGroup.add(line);
+                    }
+
+                    const rightRoadGeom = new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH);
+                    const rightRoad = new THREE.Mesh(rightRoadGeom, roadMaterial);
+                    rightRoad.rotation.x = -Math.PI / 2;
+                    rightRoad.position.x = roadOffset;
+                    rightRoad.position.y = 0.01;
+                    rightRoad.receiveShadow = true;
+                    segmentGroup.add(rightRoad);
+
+                    for (let i = -SEGMENT_LENGTH / 2 + 5; i < SEGMENT_LENGTH / 2; i += 10) {
+                        const line = new THREE.Mesh(lineGeometry.clone(), lineMaterial);
+                        line.rotation.x = -Math.PI / 2;
+                        line.position.set(roadOffset, 0.02, i);
+                        segmentGroup.add(line);
+                    }
                 }
 
-                const segmentIndex = Math.abs(Math.round(z / SEGMENT_LENGTH));
-                if (segmentIndex > 0 && segmentIndex % 5 === 0) {
+                if (type === 'split-banner') {
                     const poleHeight = 15;
                     const poleRadius = 0.2;
                     const poleGeometry = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8);
                     const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x666666 });
-
-                    const leftPole = new THREE.Mesh(poleGeometry, poleMaterial);
-                    leftPole.castShadow = true;
-                    const rightPole = new THREE.Mesh(poleGeometry, poleMaterial);
-                    rightPole.castShadow = true;
-
-                    const poleXPosition = ROAD_WIDTH / 2 + 3;
-                    const bannerZPosition = 0.90 * (SEGMENT_LENGTH / 2);
-                    leftPole.position.set(-poleXPosition, poleHeight / 2, bannerZPosition);
-                    rightPole.position.set(poleXPosition, poleHeight / 2, bannerZPosition);
-                    
-                    segmentGroup.add(leftPole, rightPole);
-
                     const bannerHeight = 5;
-                    const bannerWidth = poleXPosition * 2;
+                    const bannerWidth = ROAD_WIDTH;
                     const bannerGeometry = new THREE.PlaneGeometry(bannerWidth, bannerHeight);
                     const bannerMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-                    const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
-                    banner.receiveShadow = true;
-                    banner.position.set(0, poleHeight - bannerHeight / 2, bannerZPosition);
+                    const roadOffset = (ROAD_WIDTH + 10) / 2;
 
-                    segmentGroup.add(banner);
+                    const bannerZPosition = 0;
+
+                    const leftPole1 = new THREE.Mesh(poleGeometry.clone(), poleMaterial);
+                    const leftPole2 = new THREE.Mesh(poleGeometry.clone(), poleMaterial);
+                    const leftBanner = new THREE.Mesh(bannerGeometry.clone(), bannerMaterial);
+                    leftBanner.name = "leftBanner";
+                    leftPole1.position.set(-roadOffset - ROAD_WIDTH/2 - 1, poleHeight/2, bannerZPosition);
+                    leftPole2.position.set(-roadOffset + ROAD_WIDTH/2 + 1, poleHeight/2, bannerZPosition);
+                    leftBanner.position.set(-roadOffset, poleHeight - bannerHeight/2, bannerZPosition);
+                    segmentGroup.add(leftPole1, leftPole2, leftBanner);
+
+                    const rightPole1 = new THREE.Mesh(poleGeometry.clone(), poleMaterial);
+                    const rightPole2 = new THREE.Mesh(poleGeometry.clone(), poleMaterial);
+                    const rightBanner = new THREE.Mesh(bannerGeometry.clone(), bannerMaterial);
+                    rightBanner.name = "rightBanner";
+                    rightPole1.position.set(roadOffset - ROAD_WIDTH/2 - 1, poleHeight/2, bannerZPosition);
+                    rightPole2.position.set(roadOffset + ROAD_WIDTH/2 + 1, poleHeight/2, bannerZPosition);
+                    rightBanner.position.set(roadOffset, poleHeight - bannerHeight/2, bannerZPosition);
+                    segmentGroup.add(rightPole1, rightPole2, rightBanner);
                 } else {
                      for (let i = 0; i < 4; i++) {
                         if (Math.random() < 0.4) continue;
                         const side = Math.random() > 0.5 ? 1 : -1;
-                        const xPos = side * (ROAD_WIDTH / 2 + Math.random() * 40 + 10);
+                        const xPos = side * (roadEdgeX + Math.random() * 40 + 5);
                         const zPos = Math.random() * SEGMENT_LENGTH - SEGMENT_LENGTH / 2;
                         
                         if (Math.random() > 0.4) {
@@ -319,32 +456,42 @@
                 segmentGroup.position.z = z;
                 scene.add(segmentGroup);
 
-                const segmentShape = new CANNON.Box(new CANNON.Vec3((groundWidth * 2 + ROAD_WIDTH) / 2, 0.1, SEGMENT_LENGTH / 2));
+                const segmentShape = new CANNON.Box(new CANNON.Vec3(groundWidth, 0.1, SEGMENT_LENGTH / 2));
                 const segmentBody = new CANNON.Body({ mass: 0 });
                 segmentBody.addShape(segmentShape);
                 segmentBody.position.set(0, -0.1, z);
                 world.addBody(segmentBody);
                 
-                return { mesh: segmentGroup, body: segmentBody, z: z };
+                return { mesh: segmentGroup, body: segmentBody, z: z, index: index, prev: null, next: null, crossed: false, type: type, bannerChoices: null };
             }
             
+            let lastGeneratedIndex = 2;
             function updateRoad() {
                 const truckZ = chassisBody.position.z;
                 const generationDistance = 7 * SEGMENT_LENGTH;
                 const removalDistance = 8 * SEGMENT_LENGTH;
 
-                const lastSegment = roadSegments[roadSegments.length - 1];
-                if (lastSegment && truckZ < lastSegment.z + generationDistance) {
-                     roadSegments.push(generateRoadSegment(lastSegment.z - SEGMENT_LENGTH));
-                     roadSegments.sort((a,b) => b.z - a.z);
+                if (roadSegmentTail && truckZ < roadSegmentTail.z + generationDistance) {
+                    const nextIndex = roadSegmentTail.index - 1;
+                    const newSegment = generateRoadSegment(nextIndex);
+                    roadSegmentTail.next = newSegment;
+                    newSegment.prev = roadSegmentTail;
+                    roadSegmentTail = newSegment;
+                    roadSegmentCount++;
                 }
 
-                const firstSegment = roadSegments[0];
-                if (firstSegment && firstSegment.z > truckZ + removalDistance) {
-                    const oldSegment = roadSegments.shift();
+                if (roadSegmentHead && truckZ < roadSegmentHead.z - removalDistance) {
+                    const oldSegment = roadSegmentHead;
+                    roadSegmentHead = oldSegment.next;
+                    if (roadSegmentHead) {
+                        roadSegmentHead.prev = null;
+                    }
+                    oldSegment.next = null;
+                    
                     scene.remove(oldSegment.mesh);
                     world.removeBody(oldSegment.body);
                     oldSegment.mesh.traverse(disposeObject);
+                    roadSegmentCount--;
                 }
             }
             
@@ -352,7 +499,7 @@
             const chassisShape = new CANNON.Box(new CANNON.Vec3(2, 0.5, 4));
             const chassisBody = new CANNON.Body({ mass: 220 });
             chassisBody.addShape(chassisShape, new CANNON.Vec3(0, -0.5, 0));
-            chassisBody.position.set(0, 4, 0);
+            chassisBody.position.set(0, 4, -100);
             chassisBody.angularVelocity.set(0, 0, 0);
             chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI);
             chassisBody.linearDamping = 0;
@@ -474,6 +621,13 @@
             });
             vehicle.addToWorld(world);
             
+            const cameraOffsets = [
+                new THREE.Vector3(0, 8, 22),
+                new THREE.Vector3(0, 8, 22),
+                new THREE.Vector3(0, 8, 22)
+            ];
+            let currentZoomIndex = 0;
+
             const keyState = {};
             window.addEventListener('keydown', (e) => { 
                 keyState[e.code] = true;
@@ -485,6 +639,9 @@
                     bodyMaterial.color.setHex(newColor.color);
                     bodyMaterial.roughness = newColor.roughness;
                     bodyMaterial.metalness = newColor.metalness;
+                }
+                if (e.code === 'KeyZ') {
+                    currentZoomIndex = (currentZoomIndex + 1) % cameraOffsets.length;
                 }
             });
             window.addEventListener('keyup', (e) => { keyState[e.code] = false; });
@@ -508,15 +665,23 @@
                 chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI);
             }
 
-            for(let i = 10; i > -15; i--) {
-                roadSegments.push(generateRoadSegment(i * SEGMENT_LENGTH));
+            roadSegmentHead = generateRoadSegment(2);
+            roadSegmentTail = roadSegmentHead;
+            roadSegmentCount = 1;
+            for(let i = 1; i > -23; i--) {
+                const newSegment = generateRoadSegment(i);
+                roadSegmentTail.next = newSegment;
+                newSegment.prev = roadSegmentTail;
+                roadSegmentTail = newSegment;
+                roadSegmentCount++;
             }
-            roadSegments.sort((a,b) => b.z - a.z);
             
             let lastPosition = new CANNON.Vec3().copy(chassisBody.position);
             let throttleLevel = 0;
             let brakeLevel = 0;
-
+            let choiceHistory = [];
+            let initialBannerTextSet = false;
+            
             const speedElement = document.getElementById('speed-value');
             const throttleValueElement = document.getElementById('throttle-value');
             const throttleBarElement = document.getElementById('throttle-bar');
@@ -524,11 +689,27 @@
             const brakeBarElement = document.getElementById('brake-bar');
             const odometerElement = document.getElementById('odometer-value');
             const sceneTitleElement = document.getElementById('scene-title');
+            const logElements = [
+                document.getElementById('log-entry-1'),
+                document.getElementById('log-entry-2'),
+                document.getElementById('log-entry-3'),
+                document.getElementById('log-entry-4'),
+                document.getElementById('log-entry-5'),
+                document.getElementById('log-entry-6'),
+                document.getElementById('log-entry-7')
+            ];
             let frameCount = 0;
             let lastFpsUpdateTime = 0;
 
             const maxForceBase = 3500;
             const dragCoefficient = 0.22;
+            
+            function updateChoiceLog() {
+                const recentChoices = choiceHistory.slice(-7).reverse();
+                for (let i = 0; i < 7; i++) {
+                    logElements[i].textContent = recentChoices[i] || '';
+                }
+            }
 
             const clock = new THREE.Clock();
             function animate() {
@@ -536,9 +717,52 @@
                 const now = performance.now();
                 const deltaTime = clock.getDelta();
                 const fixedTimeStep = 1.0 / 60.0;
-                world.step(fixedTimeStep, deltaTime, 3);
+                world.step(fixedTimeStep, deltaTime, 10);
                 
                 updateRoad();
+
+                if (font && !initialBannerTextSet) {
+                    let currentSegment = roadSegmentHead;
+                    while(currentSegment) {
+                        if (currentSegment.type === 'split-banner') {
+                            const text = generateBannerText();
+                            currentSegment.bannerChoices = text;
+                            createTextOnBanner(currentSegment.mesh.getObjectByName('leftBanner'), text.left);
+                            createTextOnBanner(currentSegment.mesh.getObjectByName('rightBanner'), text.right);
+                            break;
+                        }
+                        currentSegment = currentSegment.next;
+                    }
+                    initialBannerTextSet = true;
+                }
+
+                let currentSegment = roadSegmentHead;
+                while(currentSegment) {
+                    if (currentSegment.type === 'split-banner' && !currentSegment.crossed && chassisBody.position.z < currentSegment.z) {
+                        if (currentSegment.bannerChoices) {
+                            currentSegment.crossed = true;
+                            
+                            const choice = chassisBody.position.x < 0 ? 'left' : 'right';
+                            const chosenText = choice === 'left' ? currentSegment.bannerChoices.left : currentSegment.bannerChoices.right;
+                            choiceHistory.push(chosenText);
+                            updateChoiceLog();
+
+                            let nextBannerSegment = currentSegment.next;
+                            while(nextBannerSegment && nextBannerSegment.type !== 'split-banner') {
+                                nextBannerSegment = nextBannerSegment.next;
+                            }
+                            if (nextBannerSegment) {
+                                const nextText = generateBannerText();
+                                nextBannerSegment.bannerChoices = nextText;
+                                createTextOnBanner(nextBannerSegment.mesh.getObjectByName('leftBanner'), nextText.left);
+                                createTextOnBanner(nextBannerSegment.mesh.getObjectByName('rightBanner'), nextText.right);
+                            }
+                        }
+                        break;
+                    }
+                    currentSegment = currentSegment.next;
+                }
+
 
                 for (let i = 0; i < vehicle.wheelInfos.length; i++) {
                     vehicle.updateWheelTransform(i);
@@ -680,7 +904,7 @@
 
                 // --- Camera Logic ---
                 const truckPosition = new THREE.Vector3().copy(chassisMesh.position);
-                const worldOffset = new THREE.Vector3(0, 8, 22);
+                const worldOffset = cameraOffsets[currentZoomIndex];
                 const cameraTargetPosition = new THREE.Vector3().addVectors(truckPosition, worldOffset);
                 
                 camera.position.lerp(cameraTargetPosition, 0.1);
